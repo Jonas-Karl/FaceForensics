@@ -12,6 +12,7 @@ Author: Andreas Rössler
 """
 import os
 import argparse
+import numpy as np
 from os.path import join
 import cv2
 import dlib
@@ -99,7 +100,7 @@ def predict_with_model(image, model, post_function=nn.Softmax(dim=1),
     _, prediction = torch.max(output, 1)    # argmax
     prediction = float(prediction.cpu().numpy())
 
-    return int(prediction), output
+    return prediction, output
 
 
 def test_full_image_network(video_path, model_path, output_path,
@@ -151,6 +152,7 @@ def test_full_image_network(video_path, model_path, output_path,
     assert start_frame < num_frames - 1
     end_frame = end_frame if end_frame else num_frames
     pbar = tqdm(total=end_frame-start_frame)
+    predictions = np.array([])
 
     while reader.isOpened():
         _, image = reader.read()
@@ -185,6 +187,7 @@ def test_full_image_network(video_path, model_path, output_path,
             # Actual prediction using our model
             prediction, output = predict_with_model(cropped_face, model,
                                                     cuda=cuda)
+            predictions = np.append(predictions, prediction)
             # ------------------------------------------------------------------
 
             # Text and bb
@@ -192,8 +195,8 @@ def test_full_image_network(video_path, model_path, output_path,
             y = face.top()
             w = face.right() - x
             h = face.bottom() - y
-            label = 'fake' if prediction == 1 else 'real'
-            color = (0, 255, 0) if prediction == 0 else (0, 0, 255)
+            label = 'fake' if int(prediction) == 1 else 'real'
+            color = (0, 255, 0) if int(prediction) == 0 else (0, 0, 255)
             output_list = ['{0:.2f}'.format(float(x)) for x in
                            output.detach().cpu().numpy()[0]]
             cv2.putText(image, str(output_list)+'=>'+label, (x, y+h+30),
@@ -217,6 +220,59 @@ def test_full_image_network(video_path, model_path, output_path,
         print('Input video file was empty')
 
 
+def test_without_video_output(video_path, model_path):
+    print('Starting: {}'.format(video_path))
+
+    # Read and write
+    reader = cv2.VideoCapture(video_path)
+
+    # Face detector
+    face_detector = dlib.get_frontal_face_detector()
+
+    # Load model
+    model, *_ = model_selection(modelname='xception', num_out_classes=2)
+    if model_path is not None:
+        model = torch.load(model_path)
+        print('Model found in {}'.format(model_path))
+    else:
+        print('No model found, initializing random model.')
+
+    model = model.cuda()
+    # Frame numbers and length of output video
+    frame_num = 0
+    pbar = tqdm(total=num_frames)
+    predictions = np.array([])
+    while reader.isOpened():
+        _, image = reader.read()
+        if image is None:
+            break
+        frame_num += 1
+
+        pbar.update(1)
+
+        # Image size
+        height, width = image.shape[:2]
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        faces = face_detector(gray, 1)
+        if len(faces):
+            # For now only take biggest face
+            face = faces[0]
+
+            # --- Prediction ---------------------------------------------------
+            # Face crop with dlib and bounding box scale enlargement
+            x, y, size = get_boundingbox(face, width, height)
+            cropped_face = image[y:y+size, x:x+size]
+
+            # Actual prediction using our model
+            prediction, _ = predict_with_model(cropped_face, model,
+                                                    cuda=cuda)
+            predictions = np.append(predictions, prediction)
+            # ------------------------------------------------------------------
+    result = predictions.mean()
+    print(f"{result}")
+    return result
+
+    
 if __name__ == '__main__':
     p = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -231,9 +287,11 @@ if __name__ == '__main__':
 
     video_path = args.video_path
     if video_path.endswith('.mp4') or video_path.endswith('.avi'):
-        test_full_image_network(**vars(args))
+        # test_full_image_network(**vars(args))
+        test_without_video_output(args.video_path, args.model_path)
     else:
         videos = os.listdir(video_path)
         for video in videos:
             args.video_path = join(video_path, video)
-            test_full_image_network(**vars(args))
+            # test_full_image_network(**vars(args))
+            test_without_video_output(args.video_path, args.model_path)
