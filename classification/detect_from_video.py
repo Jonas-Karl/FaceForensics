@@ -141,7 +141,6 @@ def test_full_image_network(video_path, model_path, output_path,
         print('No model found, initializing random model.')
     if cuda:
         model = model.cuda()
-
     # Text variables
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     thickness = 2
@@ -220,10 +219,10 @@ def test_full_image_network(video_path, model_path, output_path,
         print('Input video file was empty')
 
 
-def test_without_video_output(video_path, model_path):
+def test_without_video_output(video_path, model_path, cuda=True):
     print('Starting: {}'.format(video_path))
 
-    # Read and write
+    # Read
     reader = cv2.VideoCapture(video_path)
 
     # Face detector
@@ -236,10 +235,11 @@ def test_without_video_output(video_path, model_path):
         print('Model found in {}'.format(model_path))
     else:
         print('No model found, initializing random model.')
-
-    model = model.cuda()
+    if cuda:
+        model = model.cuda()
     # Frame numbers and length of output video
     frame_num = 0
+    num_frames = int(reader.get(cv2.CAP_PROP_FRAME_COUNT))
     pbar = tqdm(total=num_frames)
     predictions = np.array([])
     while reader.isOpened():
@@ -265,10 +265,11 @@ def test_without_video_output(video_path, model_path):
 
             # Actual prediction using our model
             prediction, _ = predict_with_model(cropped_face, model,
-                                                    cuda=cuda)
+                                                    cuda=True)
             predictions = np.append(predictions, prediction)
             # ------------------------------------------------------------------
     result = predictions.mean()
+    print(f"{predictions}")
     print(f"{result}")
     return result
 
@@ -287,11 +288,11 @@ if __name__ == '__main__':
 
     video_path = args.video_path
     if video_path.endswith('.mp4') or video_path.endswith('.avi'):
-        # test_full_image_network(**vars(args))
+        #test_full_image_network(**vars(args))
         test_without_video_output(args.video_path, args.model_path)
     else:
         videos = os.listdir(video_path)
         for video in videos:
             args.video_path = join(video_path, video)
-            # test_full_image_network(**vars(args))
+            #test_full_image_network(**vars(args))
             test_without_video_output(args.video_path, args.model_path)
